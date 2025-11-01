@@ -1,10 +1,6 @@
-
-require('dotenv').config()
-
-const PORT = process.env.PORT || 5000
+require('dotenv').config();
 
 module.exports = {
-  PORT,
-
-}
-
+  PORT: process.env.PORT || 5000,
+  DATABASE_URL: process.env.DATABASE_URL
+};
