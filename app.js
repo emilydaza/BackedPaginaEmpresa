@@ -76,36 +76,27 @@ app.post("/api/notas", async (req, res) => {
     }
 
     await db.query(
-      `INSERT INTO asignaciones_estudiantes (
-        nombre, grado, materia,
-        examen1, examen2, examen_final,
-        n1, n2, n3, n4,
-        autoevaluacion, heteroevaluacion
-      ) VALUES (
-        $1, $2, $3,
-        $4, $5, $6,
-        $7, $8, $9, $10,
-        $11, $12
-      )`,
+      `UPDATE asignaciones_estudiantes SET examen1 = $1, examen2 = $2, examen_final = $3, n1 = $4, n2 = $5, n3 = $6, n4 = $7, autoevaluacion = $8, heteroevaluacion = $9 WHERE nombre = $10 AND grado = $11 AND materia = $12`,
       [
-        nombre, grado, materia,
         examen1Num, examen2Num, examenFinalNum,
         n1Num, n2Num, n3Num, n4Num,
-        autoevalNum, heteroevalNum
-      ]
-    );
+        autoevalNum, heteroevalNum,
+        nombre, grado, materia
+     ]
+   );  
+
 
     res.status(201).json({ mensaje: "✅ Nota creada correctamente" });
   } catch (err) {
     console.error("❌ Error al guardar nota:", err);
-    res.status(500).send("Error del servidor");
+    res.status(500).json({ error: "Error del servidor" });
   }
 });
 
 app.get("/api/notas", async (req, res) => {
   const { nombre } = req.query;
   try {
-    const result = await db.query("SELECT * FROM notas WHERE nombre = $1", [nombre]);
+    const result = await db.query("SELECT * FROM asignaciones_estudiantes WHERE nombre = $1", [nombre]);
     res.json(result.rows);
   } catch (err) {
     console.error("Error al obtener notas:", err);
@@ -116,7 +107,7 @@ app.get("/api/notas", async (req, res) => {
 app.get('/api/notas/:grado', async (req, res) => {
   const grado = req.params.grado;
   try {
-    const result = await db.query('SELECT * FROM notas WHERE grado = $1', [grado]);
+    const result = await db.query('SELECT * FROM asignaciones_estudiantes WHERE grado = $1', [grado]);
     res.json(result.rows);
   } catch (err) {
     console.error('❌ Error al obtener notas por grado:', err);
@@ -128,7 +119,7 @@ app.get('/api/notas/:grado/:nombre', async (req, res) => {
   const { grado, nombre } = req.params;
   try {
     const result = await db.query(
-      'SELECT * FROM notas WHERE grado = $1 AND nombre = $2',
+      'SELECT * FROM asignaciones_estudiantes WHERE grado = $1 AND LOWER(nombre) = LOWER($2)',
       [grado, nombre]
     );
     res.json(result.rows);
@@ -142,12 +133,12 @@ app.get("/api/notas-materia", async (req, res) => {
   const { nombre, materia } = req.query;
   try {
     const result = await db.query(
-      "SELECT * FROM notas WHERE nombre = $1 AND materia = $2",
+      "SELECT * FROM asignaciones_estudiantes WHERE nombre = $1 AND materia = $2",
       [nombre, materia]
     );
-    res.json(result.rows);
++   res.json(result.rows);
   } catch (err) {
-    console.error("❌ Error al obtener notas por materia:", err);
+    console.error("❌ Error al obtener asignaciones_estudiantes por materia:", err);
     res.status(500).send("Error del servidor");
   }
 });
@@ -156,7 +147,7 @@ app.get('/api/grado/:nombre', async (req, res) => {
   const { nombre } = req.params;
   try {
     const result = await db.query(
-      'SELECT grado FROM notas WHERE nombre = $1 LIMIT 1',
+      'SELECT grado FROM asignaciones_estudiantes WHERE nombre = $1 LIMIT 1',
       [nombre]
     );
     res.json(result.rows[0]);
@@ -170,7 +161,7 @@ app.get("/api/estudiantes/:grado", async (req, res) => {
   const { grado } = req.params;
   try {
     const result = await db.query(
-      "SELECT DISTINCT nombre FROM notas WHERE grado = $1",
+      "SELECT DISTINCT nombre FROM asignaciones_estudiantes WHERE grado = $1",
       [grado]
     );
     res.json(result.rows);
@@ -258,7 +249,7 @@ app.get("/api/estudiantes/:grado", async (req, res) => {
   const { grado } = req.params;
   try {
     const result = await db.query(
-      "SELECT DISTINCT nombre FROM notas WHERE grado = $1",
+      "SELECT DISTINCT nombre FROM asignaciones_estudiantes WHERE grado = $1",
       [grado]
     );
     res.json(result.rows);
@@ -364,7 +355,7 @@ app.get("/api/estudiantes-por-grado", async (req, res) => {
     }
 
     const resultado = await db.query(
-      "SELECT DISTINCT nombre FROM notas WHERE grado = $1",
+      "SELECT DISTINCT nombre FROM asignaciones_estudiantes WHERE grado = $1",
       [grado]
     );
 
@@ -412,28 +403,57 @@ app.get("/api/estudiante/:username/info", async (req, res) => {
   }
 });
 
+
+
 app.post("/api/guardar-nota", async (req, res) => {
-  const { nombre, grado, materia, profesor, campo, valor } = req.body;
+  let { nombre, grado, materia, campo, valor } = req.body;
+
+  console.log("📥 Datos recibidos:", req.body);
+
+  const camposPermitidos = [
+    "examen1", "examen2", "examen_final",
+    "n1", "n2", "n3", "n4",
+    "autoevaluacion", "heteroevaluacion"
+  ];
+
+  const campoNormalizado = campo?.toLowerCase().replace(/\s+/g, "_");
+
+  if (!nombre || !grado || !materia || !campoNormalizado || valor === undefined) {
+    console.log("❌ Datos incompletos:", req.body);
+    return res.status(400).json({ error: "Datos incompletos" });
+  }
+
+  if (!camposPermitidos.includes(campoNormalizado)) {
+    console.log("❌ Campo inválido:", campoNormalizado);
+    return res.status(400).json({ error: "Campo inválido" });
+  }
+
+  const nombreClean = nombre.trim().toLowerCase();
+  const gradoClean = grado.trim();
+  const materiaClean = materia.trim().toLowerCase();
 
   try {
-    const existe = await db.query(
-      "SELECT * FROM notas WHERE nombre = $1 AND grado = $2 AND materia = $3 AND profesor = $4",
-      [nombre, grado, materia, profesor]
+    const resultado = await db.query(
+      `UPDATE asignaciones_estudiantes
+       SET ${campoNormalizado} = $1
+       WHERE LOWER(TRIM(nombre)) = $2 AND TRIM(grado) = $3 AND LOWER(TRIM(materia)) = $4`,
+      [valor === "" || valor === null ? null : Number(valor), nombreClean, gradoClean, materiaClean]
     );
 
-    if (existe.rows.length > 0) {
-      await db.query(
-        `UPDATE notas SET ${campo} = $1 WHERE nombre = $2 AND grado = $3 AND materia = $4 AND profesor = $5`,
-        [valor, nombre, grado, materia, profesor]
-      );
-    } else {
-      await db.query(
-        `INSERT INTO notas (nombre, grado, materia, profesor, ${campo}) VALUES ($1, $2, $3, $4, $5)`,
-        [nombre, grado, materia, profesor, valor]
-      );
+    console.log("🛠 UPDATE ejecutado:", {
+      campo: campoNormalizado,
+      valor,
+      nombre: nombreClean,
+      grado: gradoClean,
+      materia: materiaClean,
+      filasActualizadas: resultado.rowCount
+    });
+
+    if (resultado.rowCount === 0) {
+      return res.status(404).json({ error: "Fila no encontrada" });
     }
 
-    res.json({ ok: true });
+    res.json({ ok: true, mensaje: `✅ ${campoNormalizado} guardado para ${nombre}` });
   } catch (err) {
     console.error("❌ Error al guardar nota:", err.message);
     res.status(500).json({ error: "Error al guardar nota" });
@@ -445,7 +465,7 @@ app.get("/api/notas-por-profesor", async (req, res) => {
 
   try {
     const resultado = await db.query(
-      "SELECT nombre, examen1, examen2, examen_final, h1, h2, h3, h4, autoevaluacion, heteroevaluacion FROM notas WHERE grado = $1 AND materia = $2 AND profesor = $3",
+      "SELECT nombre, examen1, examen2, examen_final, n1, n2, n3, n4, autoevaluacion, heteroevaluacion FROM asignaciones_estudiantes WHERE grado = $1 AND materia = $2 AND profesor = $3",
       [grado, materia, profesor]
     );
 
@@ -465,30 +485,30 @@ app.post("/api/notas", async (req, res) => {
     examen1,
     examen2,
     examen_final,
-    h1,
-    h2,
-    h3,
-    h4,
+    n1,
+    n2,
+    n3,
+    n4,
     autoevaluacion,
     heteroevaluacion
   } = req.body;
 
   const existe = await db.query(
-    "SELECT * FROM notas WHERE nombre = $1 AND grado = $2 AND materia = $3 AND profesor = $4",
+    "SELECT * FROM asignaciones_estudiantes WHERE nombre = $1 AND grado = $2 AND materia = $3 AND profesor = $4",
     [nombre, grado, materia, profesor]
   );
 
   if (existe.rows.length > 0) {
     await db.query(
-      `UPDATE notas SET examen1=$5, examen2=$6, examen_final=$7, h1=$8, h2=$9, h3=$10, h4=$11, autoevaluacion=$12, heteroevaluacion=$13
+      `UPDATE asignaciones_estudiantes SET examen1=$5, examen2=$6, examen_final=$7, n1=$8, n2=$9, n3=$10, n4=$11, autoevaluacion=$12, heteroevaluacion=$13
        WHERE nombre=$1 AND grado=$2 AND materia=$3 AND profesor=$4`,
-      [nombre, grado, materia, profesor, examen1, examen2, examen_final, h1, h2, h3, h4, autoevaluacion, heteroevaluacion]
+      [nombre, grado, materia, profesor, examen1, examen2, examen_final, n1, n2, n3, n4, autoevaluacion, heteroevaluacion]
     );
   } else {
     await db.query(
-      `INSERT INTO notas (nombre, grado, materia, profesor, examen1, examen2, examen_final, h1, h2, h3, h4, autoevaluacion, heteroevaluacion)
+      `INSERT INTO asignaciones_estudiantes (nombre, grado, materia, profesor, examen1, examen2, examen_final, n1, n2, n3, n4, autoevaluacion, heteroevaluacion)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-      [nombre, grado, materia, profesor, examen1, examen2, examen_final, h1, h2, h3, h4, autoevaluacion, heteroevaluacion]
+      [nombre, grado, materia, profesor, examen1, examen2, examen_final, n1, n2, n3, n4, autoevaluacion, heteroevaluacion]
     );
   }
 
@@ -499,7 +519,7 @@ app.get("/api/notas-por-profesor", async (req, res) => {
   const { grado, materia, profesor } = req.query;
 
   const resultado = await db.query(
-    "SELECT * FROM notas WHERE grado = $1 AND materia = $2 AND profesor = $3",
+    "SELECT * FROM asignaciones_estudiantes WHERE grado = $1 AND materia = $2 AND profesor = $3",
     [grado, materia, profesor]
   );
 
@@ -584,6 +604,117 @@ app.get("/api/asignaciones-estudiantes", async (req, res) => {
   } catch (err) {
     console.error("❌ Error al obtener asignaciones:", err);
     res.status(500).send("Error del servidor");
+  }
+});
+
+const multer = require("multer");
+const xlsx = require("xlsx");
+const upload = multer({ dest: "uploads/" });
+
+app.post("/api/usuarios/carga-masiva", upload.single("archivo"), async (req, res) => {
+  console.log("Archivo recibido:", req.file);
+
+  if (!req.file) {
+    return res.status(400).send("❌ No se recibió ningún archivo");
+  }
+
+  try {
+    const workbook = xlsx.readFile(req.file.path);
+    const hoja = workbook.Sheets[workbook.SheetNames[0]];
+    const datos = xlsx.utils.sheet_to_json(hoja);
+
+    if (!Array.isArray(datos) || datos.length === 0) {
+      return res.status(400).send("❌ El archivo está vacío o mal estructurado");
+    }
+
+    for (const fila of datos) {
+      try {
+        console.log("Procesando fila:", fila);
+
+        const username = fila.username?.trim();
+        const password = fila.password?.trim();
+        const rol = fila.rol?.trim();
+        const nombre = fila.nombre?.trim();
+        const grado = fila.grado?.trim();
+
+        if (!username || !password || !rol || !nombre || !grado) {
+          console.log("❌ Fila incompleta:", fila);
+          continue;
+        }
+
+        const existeUsuario = await db.query("SELECT * FROM usuarios WHERE username = $1", [username]);
+        if (existeUsuario.rows.length === 0) {
+          await db.query(
+            "INSERT INTO usuarios (username, password, rol) VALUES ($1, $2, $3)",
+            [username, password, rol]
+          );
+        }
+
+        const materias = await db.query("SELECT nombre FROM materias_por_grado WHERE grado = $1", [grado]);
+
+        if (!materias.rows || materias.rows.length === 0) {
+          console.log(`⚠️ No se encontraron materias para el grado: ${grado}`);
+          continue;
+        }
+
+        for (const materia of materias.rows) {
+          const yaAsignado = await db.query(
+            "SELECT * FROM asignaciones_estudiantes WHERE nombre = $1 AND grado = $2 AND materia = $3",
+            [nombre, grado, materia.nombre]
+          );
+
+          if (yaAsignado.rows.length === 0) {
+            await db.query(
+              "INSERT INTO asignaciones_estudiantes (nombre, grado, materia) VALUES ($1, $2, $3)",
+              [nombre, grado, materia.nombre]
+            );
+          }
+        }
+      } catch (filaError) {
+        console.error("❌ Error procesando fila:", fila, filaError.message);
+        continue;
+      }
+    }
+
+    res.send("✅ Usuarios y asignaciones creados correctamente");
+  } catch (error) {
+    console.error("❌ Error en carga masiva:", error.stack || error.message || error);
+    res.status(500).send("❌ Error al procesar el archivo");
+  }
+});
+
+app.get("/api/notas-materia", async (req, res) => {
+  const { nombre, materia } = req.query;
+  console.log("🔍 Consultando notas para:", nombre, materia);
+
+
+  try {
+    const resultado = await db.query(
+      `SELECT * FROM asignaciones_estudiantes WHERE nombre = $1 AND materia ILIKE $2`,
+      [nombre, materia]
+    );
+
+   console.log("📤 Notas encontradas:", resultado.rows);
+    res.json(resultado.rows);
+  } catch (err) {
+    console.error("❌ ERROR COMPLETO:", err);
+    res.status(500).json({ error: "Error del servidor" });
+  }
+});
+
+app.put("/api/usuarios/:username", async (req, res) => {
+  const { username } = req.params;
+  const { username: nuevoNombre, password, rol } = req.body;
+
+  try {
+    await db.query(
+      "UPDATE usuarios SET username = $1, password = $2, rol = $3 WHERE username = $4",
+      [nuevoNombre, password, rol, username]
+    );
+    res.json({ mensaje: "✅ Usuario actualizado correctamente" });
+  } catch (err) {
+    console.error("❌ Error al actualizar usuario:", err);
+    res.status(500).json({ error: "Error del servidor" });
   }
 });
 
